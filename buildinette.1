@@ -1,0 +1,53 @@
+.TH BUILDINETTE 1 "March 2025" "Version 1.0" "User Commands"
+.SH NAME
+buildinette \- A project scaffolding tool for 42 projects
+.SH SYNOPSIS
+.B buildinette
+[B-hP] [B-lP[="<git@libft>"]] [B-mP] [B-LP="absolute|relative"] [B-gP="<git@project>"] [B-cP="<compiler>"] B-nP="<project_name>"
+.SH DESCRIPTION
+BbuildinetteP is a script to generate a project structure for 42 projects, automating the setup of Makefiles, directories, and dependencies like libft and MinilibX.
+.SH OPTIONS
+.TP
+B-nP="<project_name>"
+Specifies the project name. This option is required.
+.TP
+B-lP[="<git@libft>"]
+Automatically adds the libft library to the project. If a Git repository is specified, the library will be cloned from there and added to the configuration file.
+If no Git repository is specified, the library will be cloned from the configured default repository if it exists.
+BNote:P After the first use, the library will be added to the configuration file and will be used by default for future projects.
+.TP
+B-mP
+Includes the MinilibX graphics library in the project.
+.TP
+B-LP="absolute|relative"
+Sets the linking mode for headers. Defaults to absolute.
+.TP
+B-gP="<git@project>"
+Initializes a Git repository and sets the remote URL.
+.TP
+B-cP="<compiler>"
+Specifies the compiler (default: gcc).
+.TP
+B-hP
+Displays this help message and exits.
+.SH EXAMPLES
+Create a project named "my_project" with default settings:
+.EX
+$ buildinette -n="my_project"
+.EE
+Create a project with libft from a specific repository:
+.EX
+$ buildinette -n="my_project" -l="git@libft_repo"
+.EE
+Create a project with MinilibX and relative header linking:
+.EX
+$ buildinette -n="my_project" -m -L="relative"
+.EE
+.SH CONFIGURATION
+If used with libft, MinilibX, or a compiler preference, settings will be stored in a configuration file for future use.
+.SH AUTHOR
+Written by Maxime Cauchy.
+.SH REPORTING BUGS
+Report issues at: <https://github.com/your-repo/buildinette>
+.SH COPYRIGHT
+Copyright (C) 2025. All rights reserved.

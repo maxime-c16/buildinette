@@ -2,54 +2,100 @@
 # buildinette - A project skeleton generator for School 42 projects.
 #
 # Usage:
-#   buildinette -name="<project_name>" [-libft="<git@libft_repo>"] [-link="<absolute|relative>"] [-git="<git@project_repo>"]
+#   buildinette -name="<project_name>" [-libft="<git@libft_repo>"] [-mlx] [-link="<absolute|relative>"] [-git="<git@project_repo>"]
 #
-# This script creates the following layout:
+# Options:
+#   -name    : (Mandatory) Name of the project.
+#   -libft   : (Optional) Git URL for the libft repository.
+#   -mlx     : (Optional) Enable MinilibX support. This will clone the repository
+#             from https://github.com/42paris/minilibx-linux.git into the project.
+#             The script automatically sets linker flags based on your OS.
+#   -link    : (Optional) "absolute" or "relative". In "relative" mode the Makefile adds
+#             "-Iincludes" so that your source files include headers with a relative path.
+#             In "absolute" mode no include flag is added (expecting absolute #include paths).
+#   -git     : (Optional) Git remote for the project. Initializes a git repo and sets the remote.
+#
+# Requirements:
+#   - git must be installed.
+#   - For –mlx: On Linux you must have gcc, make, X11 development packages (xorg, libxext-dev, libbsd-dev).
+#             On macOS, you should have XQuartz installed.
+#
+# This script creates the following project structure:
 #
 # <project_name>/
-# ├── Makefile         # Generated as per provided example (using srcs, .objs, linking libft if specified)
+# ├── Makefile         # Generated Makefile with conditional libft and mlx commands.
 # ├── includes/
 # │     └── <project_name>.h
-# └── srcs/
-#       └── <project_name>.c
+# ├── srcs/
+# │     └── <project_name>.c
+# ├── [libft/]         # (Optional) Cloned libft repository if -libft is provided.
+# └── [mlx/]           # (Optional) Cloned minilibX repository if -mlx is provided.
 #
-# If the -link option is "absolute", the Makefile will compile without adding any include flags,
-# meaning your .c files must #include headers via an absolute path.
-# If "relative", the Makefile will compile with -Iincludes.
-#
-# Additionally, if -libft is provided the libft repo will be cloned into a libft/ folder,
-# and if -git is provided, a git repository will be initialized with that remote.
 
-# Function to display usage
+CONFIG_FILE="$HOME/.config/buildinette.conf"
+
+# Function to display usage information
 usage() {
-	echo "Usage: $0 -name=\"<project_name>\" [-libft=\"<git@libft_repo>\"] [-link=\"absolute|relative\"] [-git=\"<git@project_repo>\"]"
+	echo "Usage: $0 -n=\"<project_name>\" [-l[=\"<git@libft>\"]|--libft[=\"<git@libft>\"]] [-m|--mlx] [-L=\"absolute|relative\"] [-g=\"<git@project>\"] [-c=\"<compiler>\"] [-h|--help]"
 	exit 1
 }
 
-# Parse options
+# Load configuration if available
+if [[ -f "$CONFIG_FILE" ]]; then
+    source "$CONFIG_FILE"
+fi
+
+# Parse command-line options
 for arg in "$@"; do
 	case $arg in
-		-name=*)
+		-n=*|--name=*)
 			PROJECT_NAME="${arg#*=}"
 			shift
 			;;
-		-libft=*)
+		--libft-force=*)
 			LIBFT_REPO="${arg#*=}"
+			sed -i "s/^LIBFT_DEFAULT=.*$/LIBFT_DEFAULT=\"$LIBFT_REPO\"/" "$CONFIG_FILE"
 			shift
 			;;
-		-link=*)
+		-l=*|--libft=*)
+			if [[ -z "$LIBFT_DEFAULT" ]]; then
+				LIBFT_REPO="${arg#*=}"
+				echo "LIBFT_DEFAULT=\"$LIBFT_REPO\"" >> "$CONFIG_FILE"
+				echo "✅ LIBFT_DEFAULT configured in $CONFIG_FILE."
+			else
+				echo "Error: LIBFT_DEFAULT is already configured in $CONFIG_FILE."
+				echo '       Use --libft-force="<git@libft_repo>" option to override the configuration.'
+				exit 1
+			fi
+			shift
+			;;
+		-l|--libft)
+			if [[ -z "$LIBFT_DEFAULT" ]]; then
+				echo "Error: -l option requires configuring LIBFT_DEFAULT in $CONFIG_FILE."
+				echo '       Provide the repository URL with -l="<git@libft_repo>" for configuration.'
+				usage
+			else
+				LIBFT_REPO="$LIBFT_DEFAULT"
+			fi
+			shift
+			;;
+		-m|--mlx)
+			MLX_OPTION="yes"
+			shift
+			;;
+		-L=*|--link=*)
 			LINK_OPTION="${arg#*=}"
 			shift
 			;;
-		-git=*)
+		-g=*|--git=*)
 			PROJECT_GIT="${arg#*=}"
 			shift
 			;;
-		-cc=*)
+		-c=*|--cc=*)
 			CC="${arg#*=}"
 			shift
 			;;
-		-h | --help)
+		-h|--help)
 			usage
 			;;
 		*)
@@ -59,139 +105,144 @@ for arg in "$@"; do
 	esac
 done
 
-# Check mandatory -name option
+# Check required option
 if [[ -z "$PROJECT_NAME" ]]; then
 	echo "Error: -name option is required."
 	usage
 fi
 
-# Default link mode is relative if not specified
-if [[ -z "$LINK_OPTION" ]]; then
-	LINK_OPTION="absolute"
-fi
+# Set defaults
+LINK_OPTION=${LINK_OPTION:-"absolute"}
+CC=${CC:-"gcc"}
+LDFLAGS=""
 
-# Default compiler is gcc if not specified
-if [[ -z "$CC" ]]; then
-	CC="gcc"
-fi
+# Detect OS type
+OS_TYPE=$(uname)
+MLX_LINK_FLAGS=$([[ "$OS_TYPE" == "Darwin" ]] && echo "-Lmlx -lmlx -framework OpenGL -framework AppKit" || echo "-Lmlx -lmlx -lX11 -lXext -lbsd")
 
-# Create project directory structure
-mkdir -p "$PROJECT_NAME/srcs"
-mkdir -p "$PROJECT_NAME/includes"
+# Create project directories
+mkdir -p "$PROJECT_NAME/srcs" "$PROJECT_NAME/includes"
 
-# Create a basic source file and header file
-SOURCE_FILE="$PROJECT_NAME/srcs/${PROJECT_NAME}.c"
-HEADER_FILE="$PROJECT_NAME/includes/${PROJECT_NAME}.h"
-
-# Create an example source file (with a simple main function)
-cat > "$SOURCE_FILE" <<EOF
+# Generate source & header files
+cat > "$PROJECT_NAME/srcs/${PROJECT_NAME}.c" <<EOF
 #include "$(if [ "$LINK_OPTION" = "relative" ]; then echo "${PROJECT_NAME}.h"; else echo "../includes/${PROJECT_NAME}.h"; fi)"
 
 int	main(int ac, char **av)
 {
-	return 0;
+	return (0);
 }
 EOF
 
-# Create a simple header file
-cat > "$HEADER_FILE" <<EOF
+cat > "$PROJECT_NAME/includes/${PROJECT_NAME}.h" <<EOF
 #ifndef $(echo "${PROJECT_NAME}" | tr '[:lower:]' '[:upper:]')_H
 
 # define $(echo "${PROJECT_NAME}" | tr '[:lower:]' '[:upper:]')_H
+$( [[ -n "$MLX_OPTION" ]] && echo '
+# include "../mlx/mlx.h"
 
+')
 // Add your declarations here
 
 #endif
 EOF
 
-# Decide on LDFLAGS: if libft is provided, then link with it.
+# Handle libft linking
 if [[ -n "$LIBFT_REPO" ]]; then
-	LDFLAGS="-Llibft -lft"
-else
-	LDFLAGS=""
+	LDFLAGS+=" -Llibft -lft"
 fi
 
-# Set include flag for "relative" mode; if absolute, do not add any
-if [[ "$LINK_OPTION" == "relative" ]]; then
-	INCLUDE_FLAG="-Iincludes"
-else
-	INCLUDE_FLAG=""
+# Handle mlx linking
+if [[ -n "$MLX_OPTION" ]]; then
+	LDFLAGS+=" $MLX_LINK_FLAGS"
 fi
 
-# Generate the Makefile
-# Append project-specific variables to the Makefile
+# Generate Makefile
 cat > "$PROJECT_NAME/Makefile" <<EOF
 FILES	=	${PROJECT_NAME}.c
-
 SRC_DIR	=	srcs
 SRCS	=	\$(addprefix \$(SRC_DIR)/, \$(FILES))
-
 OBJ_DIR	=	.objs
 OBJS	=	\$(addprefix \$(OBJ_DIR)/, \$(FILES:.c=.o))
 
 NAME	=	${PROJECT_NAME}
 CC		=	${CC}
-CFLAGS	=	-g3 ${INCLUDE_FLAG}
+CFLAGS	=	-g3 $( [[ "$LINK_OPTION" == "relative" ]] && echo "-Iincludes" )
 DEBUG	=	-fsanitize=address
 RM		=	/bin/rm -rf
 LDFLAGS	=	${LDFLAGS}
 
 all:		\$(NAME)
 
+\$(NAME):	\$(OBJS)
 EOF
 
-# Append build commands to the Makefile
-{
-    # Start the main target
-    echo '$(NAME):	$(OBJS)'
-    if [[ -n "$LIBFT_REPO" ]]; then
-        echo '		$(MAKE) -C libft'
-    fi
-    echo '		$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) -o $(NAME)'
-    echo ''
-    echo '$(OBJ_DIR)/%.o:	$(SRC_DIR)/%.c'
-    echo '		@mkdir -p $(OBJ_DIR)'
-    echo '		$(CC) $(CFLAGS) -c $< -o $@'
-    echo ''
-    echo 'debug:		$(OBJS)'
-    if [[ -n "$LIBFT_REPO" ]]; then
-        echo '		$(MAKE) -C libft'
-    fi
-    echo '		$(CC) $(CFLAGS) $(DEBUG) $(OBJS) $(LDFLAGS) -o $(NAME)'
-    echo ''
-    echo 'clean:'
-    if [[ -n "$LIBFT_REPO" ]]; then
-        echo '		$(MAKE) -C libft clean'
-    fi
-    echo '		$(RM) $(OBJ_DIR)'
-    echo ''
-    echo 'fclean:		clean'
-    if [[ -n "$LIBFT_REPO" ]]; then
-        echo '		$(MAKE) -C libft fclean'
-    fi
-    echo '		$(RM) $(NAME)'
-    echo ''
-    echo 're:			fclean all'
-    echo ''
-    echo '.PHONY:		all clean fclean re'
-} >> "$PROJECT_NAME/Makefile"
+[[ -n "$LIBFT_REPO" ]] && echo '		$(MAKE) -C libft' >> "$PROJECT_NAME/Makefile"
+[[ -n "$MLX_OPTION" ]] && echo '		$(MAKE) -C mlx' >> "$PROJECT_NAME/Makefile"
 
+cat >> "$PROJECT_NAME/Makefile" <<EOF
+		\$(CC) \$(CFLAGS) \$(OBJS) \$(LDFLAGS) -o \$(NAME)
 
-# If the -libft option is provided, clone the libft repository
+\$(OBJ_DIR)/%.o:	\$(SRC_DIR)/%.c
+		@mkdir -p \$(OBJ_DIR)
+		\$(CC) \$(CFLAGS) -c \$< -o \$@
+
+debug:		\$(OBJS)
+EOF
+
+[[ -n "$LIBFT_REPO" ]] && echo '		$(MAKE) -C libft' >> "$PROJECT_NAME/Makefile"
+[[ -n "$MLX_OPTION" ]] && echo '		$(MAKE) -C mlx' >> "$PROJECT_NAME/Makefile"
+
+cat >> "$PROJECT_NAME/Makefile" <<EOF
+		\$(CC) \$(CFLAGS) \$(DEBUG) \$(OBJS) \$(LDFLAGS) -o \$(NAME)
+
+clean:
+EOF
+
+[[ -n "$LIBFT_REPO" ]] && echo '		$(MAKE) -C libft clean' >> "$PROJECT_NAME/Makefile"
+[[ -n "$MLX_OPTION" ]] && echo '		$(MAKE) -C mlx clean' >> "$PROJECT_NAME/Makefile"
+
+cat >> "$PROJECT_NAME/Makefile" <<EOF
+		\$(RM) \$(OBJ_DIR)
+
+fclean: clean
+EOF
+
+[[ -n "$LIBFT_REPO" ]] && echo '		$(MAKE) -C libft fclean' >> "$PROJECT_NAME/Makefile"
+
+cat >> "$PROJECT_NAME/Makefile" <<EOF
+		\$(RM) \$(NAME)
+
+re:			fclean all
+
+.PHONY:		all clean fclean re
+EOF
+
+# Clone libft if required
 if [[ -n "$LIBFT_REPO" ]]; then
 	mkdir -p "$PROJECT_NAME/libft"
 	echo "Cloning libft repository..."
 	git clone "$LIBFT_REPO" "$PROJECT_NAME/libft"
+	rm -rf "$PROJECT_NAME/libft/.git"
 fi
 
-# If the -git option is provided, initialize a git repository and add remote
+# Clone mlx if required
+if [[ -n "$MLX_OPTION" ]]; then
+	mkdir -p "$PROJECT_NAME/mlx"
+	echo "Cloning minilibX repository..."
+	git clone https://github.com/42paris/minilibx-linux.git "$PROJECT_NAME/mlx"
+	[[ "$OS_TYPE" == "Darwin" ]] && echo "ℹ️ macOS users should install XQuartz for MinilibX support."
+	rm -rf "$PROJECT_NAME/mlx/.git"
+fi
+
+# Initialize git if -git option is used
 if [[ -n "$PROJECT_GIT" ]]; then
 	(cd "$PROJECT_NAME" && git init && git remote add origin "$PROJECT_GIT")
 fi
 
-echo "Project '$PROJECT_NAME' structure created successfully."
-[[ -n "$LIBFT_REPO" ]] && echo "libft cloned from $LIBFT_REPO."
-[[ -n "$PROJECT_GIT" ]] && echo "Git repository initialized with remote $PROJECT_GIT."
+# Summary output
+echo "✅ Project '$PROJECT_NAME' structure created successfully."
+[[ -n "$LIBFT_REPO" ]] && echo "🔗 libft cloned from $LIBFT_REPO."
+[[ -n "$PROJECT_GIT" ]] && echo "🌍 Git repository initialized with remote $PROJECT_GIT. Push using git push --set-upstream origin master"
+[[ -n "$MLX_OPTION" ]] && echo "🖥️ MinilibX support enabled."
 
-# End of buildinette.sh
 exit 0
