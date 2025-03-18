@@ -229,9 +229,17 @@ fi
 if [[ -n "$MLX_OPTION" ]]; then
 	mkdir -p "$PROJECT_NAME/mlx"
 	echo "Cloning minilibX repository..."
-	git clone https://github.com/42paris/minilibx-linux.git "$PROJECT_NAME/mlx"
-	[[ "$OS_TYPE" == "Darwin" ]] && echo "ℹ️ macOS users should install XQuartz for MinilibX support."
-	rm -rf "$PROJECT_NAME/mlx/.git"
+	if [[ "$OS_TYPE" == "Darwin" ]]; then
+		git clone https://github.com/dannywillems/minilibx-mac-osx.git "$PROJECT_NAME/mlx"
+		git clone https://github.com/42paris/minilibx-linux.git "$PROJECT_NAME/mlx_linux"
+		/bin/rm -rf "$PROJECT_NAME/mlx_linux/.git"
+		/bin/rm -rf "$PROJECT_NAME/mlx/.git"
+	else
+		git clone https://github.com/42paris/minilibx-linux.git "$PROJECT_NAME/mlx"
+		git clone https://github.com/dannywillems/minilibx-mac-osx.git "$PROJECT_NAME/mlx_macos"
+		/bin/rm -rf "$PROJECT_NAME/mlx_macos/.git"
+		/bin/rm -rf "$PROJECT_NAME/mlx/.git"
+	fi
 fi
 
 # Initialize git if -git option is used
