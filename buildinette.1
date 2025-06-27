@@ -3,13 +3,16 @@
 buildinette \- A project scaffolding tool for 42 projects
 .SH SYNOPSIS
 .B buildinette
-[B-hP] [B-lP[="<git@libft>"]] [B-mP] [B-LP="absolute|relative"] [B-gP="<git@project>"] [B-cP="<compiler>"] B-nP="<project_name>"
+[B-iP|\014B--interactive\014P] [B-hP] [B-lP[="<git@libft>"]] [B-mP] [B-LP="absolute|relative"] [B-gP="<git@project>"] [B-cP="<compiler>"] [B--subprojectP] B-nP="<project_name>"
 .SH DESCRIPTION
 BbuildinetteP is a script to generate a project structure for 42 projects, automating the setup of Makefiles, directories, and dependencies like libft and MinilibX.
 .SH OPTIONS
 .TP
-B-nP="<project_name>"
-Specifies the project name. This option is required.
+\014B-n\014P="<project_name>"
+Specifies the project name. This option is required unless interactive mode is used.
+.TP
+\014B-i\014P, \014B--interactive\014P
+Enables interactive mode, prompting for project and subproject names.
 .TP
 B-lP[="<git@libft>"]
 Automatically adds the libft library to the project. If a Git repository is specified, the library will be cloned from there and added to the configuration file.
@@ -25,10 +28,13 @@ Sets the linking mode for headers. Defaults to absolute.
 B-gP="<git@project>"
 Initializes a Git repository and sets the remote URL.
 .TP
-B-cP="<compiler>"
+\014B-c\014P="<compiler>"
 Specifies the compiler (default: gcc).
 .TP
-B-hP
+\014B--subproject\014P
+Creates the project structure within a subfolder named after the project, allowing for a monorepo-like setup where the .git directory is in the parent folder.
+.TP
+\014B-h\014P
 Displays this help message and exits.
 .SH EXAMPLES
 Create a project named "my_project" with default settings:

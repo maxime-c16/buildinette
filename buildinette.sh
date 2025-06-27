@@ -32,111 +32,89 @@
 # └── [mlx/]           # (Optional) Cloned minilibX repository if -mlx is provided.
 #
 
-CONFIG_FILE="$HOME/.config/buildinette.conf"
+#
+#
+INSTALL_PATH="/usr/local/bin/buildinette"
 
-# Function to display usage information
-usage() {
-	echo "Usage: $0 -n=\"<project_name>\" [-l[=\"<git@libft>\"]|--libft[=\"<git@libft>\"]] [-m|--mlx] [-L=\"absolute|relative\"] [-g=\"<git@project>\"] [-c=\"<compiler>\"] [-h|--help]"
-	exit 1
-}
+PROJECT_NAME="default_project" # Default project name, can be overridden by -name
+PROJECT_ROOT="." # Default project root, current directory
 
-# Load configuration if available
-if [[ -f "$CONFIG_FILE" ]]; then
-    source "$CONFIG_FILE"
+if [ ! -f "$INSTALL_PATH" ]; then
+	read -p "buildinette is not installed system-wide. Do you want to install it to $INSTALL_PATH? (y/n) " -r
+	echo
+	if [[ ${REPLY:0:1} =~ ^[Yy]$ ]]; then
+		echo "Installing buildinette to $INSTALL_PATH..."
+		sudo cp "$0" "$INSTALL_PATH" && sudo chmod +x "$INSTALL_PATH"
+		if [ $? -eq 0 ]; then
+			echo "buildinette installed successfully. You can now run 'buildinette' from anywhere."
+		else
+			echo "Error: Failed to install buildinette."
+		fi
+	fi
 fi
 
-# Parse command-line options
-for arg in "$@"; do
-	case $arg in
-		-n=*|--name=*)
-			PROJECT_NAME="${arg#*=}"
-			shift
+CONFIG_FILE="$HOME/.config/buildinette.conf"
+
+# Parse command-line arguments
+while getopts ":n:l:m:L:g:h" opt; do
+	case $opt in
+		n)
+			PROJECT_NAME="$OPTARG"
 			;;
-		--libft-force=*)
-			LIBFT_REPO="${arg#*=}"
-			sed -i "s/^LIBFT_DEFAULT=.*$/LIBFT_DEFAULT=\"$LIBFT_REPO\"/" "$CONFIG_FILE"
-			shift
+		l)
+			LIBFT_REPO="$OPTARG"
 			;;
-		-l=*|--libft=*)
-			if [[ -z "$LIBFT_DEFAULT" ]]; then
-				LIBFT_REPO="${arg#*=}"
-				echo "LIBFT_DEFAULT=\"$LIBFT_REPO\"" >> "$CONFIG_FILE"
-				echo "✅ LIBFT_DEFAULT configured in $CONFIG_FILE."
-			else
-				echo "Error: LIBFT_DEFAULT is already configured in $CONFIG_FILE."
-				echo '       Use --libft-force="<git@libft_repo>" option to override the configuration.'
-				exit 1
-			fi
-			shift
-			;;
-		-l|--libft)
-			if [[ -z "$LIBFT_DEFAULT" ]]; then
-				echo "Error: -l option requires configuring LIBFT_DEFAULT in $CONFIG_FILE."
-				echo '       Provide the repository URL with -l="<git@libft_repo>" for configuration.'
-				usage
-			else
-				LIBFT_REPO="$LIBFT_DEFAULT"
-			fi
-			shift
-			;;
-		-m|--mlx)
+		m)
 			MLX_OPTION="yes"
-			shift
 			;;
-		-L=*|--link=*)
-			LINK_OPTION="${arg#*=}"
-			shift
+		L)
+			LINK_OPTION="$OPTARG"
 			;;
-		-g=*|--git=*)
-			PROJECT_GIT="${arg#*=}"
-			shift
+		g)
+			PROJECT_GIT="$OPTARG"
 			;;
-		-c=*|--cc=*)
-			CC="${arg#*=}"
-			shift
-			;;
-		-h|--help)
+		h)
 			usage
 			;;
-		*)
-			echo "Unknown option: $arg"
+		\?)
+			echo "Invalid option: -$OPTARG" >&2
+			usage
+			;;
+		:)
+			echo "Option -$OPTARG requires an argument." >&2
 			usage
 			;;
 	esac
 done
+shift $((OPTIND-1))
 
-# Check required option
-if [[ -z "$PROJECT_NAME" ]]; then
-	echo "Error: -name option is required."
-	usage
-fi
+# Function to display usage information
+usage() {
+	echo "Usage: $0 [-h|--help]"
+	exit 1
+}
 
-# Set defaults
-LINK_OPTION=${LINK_OPTION:-"absolute"}
-CC=${CC:-"gcc"}
-LDFLAGS=""
+# Function to generate project files for a given path and name
+generate_single_project() {
+	local target_dir="$1"
+	local file_name="$2" # This will be the name used in .c, .h, Makefile
 
-# Detect OS type
-OS_TYPE=$(uname)
-MLX_LINK_FLAGS=$([[ "$OS_TYPE" == "Darwin" ]] && echo "-Lmlx -lmlx -framework OpenGL -framework AppKit" || echo "-Lmlx -lmlx -lX11 -lXext -lbsd")
+	mkdir -p "$target_dir/src" "$target_dir/include"
 
-# Create project directories
-mkdir -p "$PROJECT_NAME/srcs" "$PROJECT_NAME/includes"
+	# Generate source & header files
+	cat > "$target_dir/src/${file_name}.${SRC_EXT}" <<EOF
+#include "$(if [ "$LINK_OPTION" = "relative" ]; then echo "${file_name}.${HEADER_EXT}"; else echo "../include/${file_name}.${HEADER_EXT}"; fi)"
 
-# Generate source & header files
-cat > "$PROJECT_NAME/srcs/${PROJECT_NAME}.c" <<EOF
-#include "$(if [ "$LINK_OPTION" = "relative" ]; then echo "${PROJECT_NAME}.h"; else echo "../includes/${PROJECT_NAME}.h"; fi)"
-
-int	main(int ac, char **av)
+int main(int ac, char **av)
 {
 	return (0);
 }
 EOF
 
-cat > "$PROJECT_NAME/includes/${PROJECT_NAME}.h" <<EOF
-#ifndef $(echo "${PROJECT_NAME}" | tr '[:lower:]' '[:upper:]')_H
+	cat > "$target_dir/include/${file_name}.${HEADER_EXT}" <<EOF
+#ifndef $(echo "${file_name}" | tr '[:lower:]' '[:upper:]')_HPP
 
-# define $(echo "${PROJECT_NAME}" | tr '[:lower:]' '[:upper:]')_H
+# define $(echo "${file_name}" | tr '[:lower:]' '[:upper:]')_HPP
 $( [[ -n "$MLX_OPTION" ]] && echo '
 # include "../mlx/mlx.h"
 
@@ -146,27 +124,19 @@ $( [[ -n "$MLX_OPTION" ]] && echo '
 #endif
 EOF
 
-# Handle libft linking
-if [[ -n "$LIBFT_REPO" ]]; then
-	LDFLAGS+=" -Llibft -lft"
-fi
-
-# Handle mlx linking
-if [[ -n "$MLX_OPTION" ]]; then
-	LDFLAGS+=" $MLX_LINK_FLAGS"
-fi
-
-# Generate Makefile
-cat > "$PROJECT_NAME/Makefile" <<EOF
-FILES	=	${PROJECT_NAME}.c
-SRC_DIR	=	srcs
+	# Generate Makefile
+	cat > "$target_dir/Makefile" <<EOF
+FILES	=	${file_name}.${SRC_EXT}
+SRC_DIR	=	src
 SRCS	=	\$(addprefix \$(SRC_DIR)/, \$(FILES))
 OBJ_DIR	=	.objs
-OBJS	=	\$(addprefix \$(OBJ_DIR)/, \$(FILES:.c=.o))
+OBJS	=	\$(addprefix \$(OBJ_DIR)/, \$(FILES:.${SRC_EXT}=.o))
+HEADER_DIR	=	include
+HEADERS	=	\$(addprefix \$(HEADER_DIR)/, ${file_name}.${HEADER_EXT})
 
-NAME	=	${PROJECT_NAME}
+NAME	=	${file_name}
 CC		=	${CC}
-CFLAGS	=	-g3 $( [[ "$LINK_OPTION" == "relative" ]] && echo "-Iincludes" )
+CFLAGS	=	${CFLAGS} $( [[ "$LINK_OPTION" == "relative" ]] && echo "-Iinclude" )
 DEBUG	=	-fsanitize=address
 RM		=	/bin/rm -rf
 LDFLAGS	=	${LDFLAGS}
@@ -176,81 +146,245 @@ all:		\$(NAME)
 \$(NAME):	\$(OBJS)
 EOF
 
-[[ -n "$LIBFT_REPO" ]] && echo '		$(MAKE) -C libft' >> "$PROJECT_NAME/Makefile"
-[[ -n "$MLX_OPTION" ]] && echo '		$(MAKE) -C mlx' >> "$PROJECT_NAME/Makefile"
+	# Adjust Makefile for libft and mlx paths
+	local libft_make_path="libft"
+	local mlx_make_path="mlx"
+	if [[ "$target_dir" != "." ]]; then # If it's not the root project
+		libft_make_path="../libft"
+		mlx_make_path="../mlx"
+	fi
 
-cat >> "$PROJECT_NAME/Makefile" <<EOF
-		\$(CC) \$(CFLAGS) \$(OBJS) \$(LDFLAGS) -o \$(NAME)
+	[[ -n "$LIBFT_REPO" ]] && echo "	\$(MAKE) -C $libft_make_path" >> "$target_dir/Makefile"
+	[[ -n "$MLX_OPTION" ]] && echo "	\$(MAKE) -C $mlx_make_path" >> "$target_dir/Makefile"
 
-\$(OBJ_DIR)/%.o:	\$(SRC_DIR)/%.c
-		@mkdir -p \$(OBJ_DIR)
-		\$(CC) \$(CFLAGS) -c \$< -o \$@
+	cat >> "$target_dir/Makefile" <<EOF
+	\$(CC) \$(CFLAGS) \$(OBJS) \$(LDFLAGS) -o \$(NAME)
+
+\$(OBJ_DIR)/%.o:	\$(SRC_DIR)/%.${SRC_EXT} \$(HEADERS)
+	@mkdir -p \$(OBJ_DIR)
+	\$(CC) \$(CFLAGS) -c \$< -o \$@
 
 debug:		\$(OBJS)
 EOF
 
-[[ -n "$LIBFT_REPO" ]] && echo '		$(MAKE) -C libft' >> "$PROJECT_NAME/Makefile"
-[[ -n "$MLX_OPTION" ]] && echo '		$(MAKE) -C mlx' >> "$PROJECT_NAME/Makefile"
+	[[ -n "$LIBFT_REPO" ]] && echo "	\$(MAKE) -C $libft_make_path" >> "$target_dir/Makefile"
+	[[ -n "$MLX_OPTION" ]] && echo "	\$(MAKE) -C $mlx_make_path" >> "$target_dir/Makefile"
 
-cat >> "$PROJECT_NAME/Makefile" <<EOF
-		\$(CC) \$(CFLAGS) \$(DEBUG) \$(OBJS) \$(LDFLAGS) -o \$(NAME)
+	cat >> "$target_dir/Makefile" <<EOF
+	\$(CC) \$(CFLAGS) \$(DEBUG) \$(OBJS) \$(LDFLAGS) -o \$(NAME)
 
 clean:
 EOF
 
-[[ -n "$LIBFT_REPO" ]] && echo '		$(MAKE) -C libft clean' >> "$PROJECT_NAME/Makefile"
-[[ -n "$MLX_OPTION" ]] && echo '		$(MAKE) -C mlx clean' >> "$PROJECT_NAME/Makefile"
+	[[ -n "$LIBFT_REPO" ]] && echo "	\$(MAKE) -C $libft_make_path clean" >> "$target_dir/Makefile"
+	[[ -n "$MLX_OPTION" ]] && echo "	\$(MAKE) -C $mlx_make_path clean" >> "$target_dir/Makefile"
 
-cat >> "$PROJECT_NAME/Makefile" <<EOF
-		\$(RM) \$(OBJ_DIR)
+	cat >> "$target_dir/Makefile" <<EOF
+	\$(RM) \$(OBJ_DIR)
 
 fclean: clean
 EOF
 
-[[ -n "$LIBFT_REPO" ]] && echo '		$(MAKE) -C libft fclean' >> "$PROJECT_NAME/Makefile"
+	[[ -n "$LIBFT_REPO" ]] && echo "	\$(MAKE) -C $libft_make_path fclean" >> "$target_dir/Makefile"
 
-cat >> "$PROJECT_NAME/Makefile" <<EOF
-		\$(RM) \$(NAME)
+	cat >> "$target_dir/Makefile" <<EOF
+	\$(RM) \$(NAME)
 
 re:			fclean all
 
 .PHONY:		all clean fclean re
 EOF
+}
 
-# Clone libft if required
-if [[ -n "$LIBFT_REPO" ]]; then
-	mkdir -p "$PROJECT_NAME/libft"
-	echo "Cloning libft repository..."
-	git clone "$LIBFT_REPO" "$PROJECT_NAME/libft"
-	rm -rf "$PROJECT_NAME/libft/.git"
+# Load configuration if available
+if [[ -f "$CONFIG_FILE" ]]; then
+	source "$CONFIG_FILE"
 fi
 
-# Clone mlx if required
-if [[ -n "$MLX_OPTION" ]]; then
-	mkdir -p "$PROJECT_NAME/mlx"
-	echo "Cloning minilibX repository..."
-	if [[ "$OS_TYPE" == "Darwin" ]]; then
-		git clone https://github.com/dannywillems/minilibx-mac-osx.git "$PROJECT_NAME/mlx"
-		git clone https://github.com/42paris/minilibx-linux.git "$PROJECT_NAME/mlx_linux"
-		/bin/rm -rf "$PROJECT_NAME/mlx_linux/.git"
-		/bin/rm -rf "$PROJECT_NAME/mlx/.git"
+# Initialize PROJECTS_TO_GENERATE array
+PROJECTS_TO_GENERATE=()
+
+# If PROJECT_NAME is not set by command line, prompt for it
+if [[ -z "$PROJECT_NAME" ]]; then
+	if [[ -t 0 ]]; then
+		read -p "Enter project name: " PROJECT_NAME
 	else
-		git clone https://github.com/42paris/minilibx-linux.git "$PROJECT_NAME/mlx"
-		git clone https://github.com/dannywillems/minilibx-mac-osx.git "$PROJECT_NAME/mlx_macos"
-		/bin/rm -rf "$PROJECT_NAME/mlx_macos/.git"
-		/bin/rm -rf "$PROJECT_NAME/mlx/.git"
+		read PROJECT_NAME
+	fi
+	if [[ -z "$PROJECT_NAME" ]]; then
+		echo "Project name cannot be empty. Exiting."
+		exit 1
 	fi
 fi
 
-# Initialize git if -git option is used
-if [[ -n "$PROJECT_GIT" ]]; then
-	(cd "$PROJECT_NAME" && git init && git remote add origin "$PROJECT_GIT")
+
+# Main project always added first
+PROJECTS_TO_GENERATE+=(".:$PROJECT_NAME")
+
+# Process subprojects if any
+if [[ -t 0 ]]; then # Check if stdin is a TTY
+	read -p "Do you want to create subprojects? (y/n): " -r
+	echo
+else
+	read REPLY
 fi
 
-# Summary output
-echo "✅ Project '$PROJECT_NAME' structure created successfully."
-[[ -n "$LIBFT_REPO" ]] && echo "🔗 libft cloned from $LIBFT_REPO."
-[[ -n "$PROJECT_GIT" ]] && echo "🌍 Git repository initialized with remote $PROJECT_GIT. Push using git push --set-upstream origin master"
-[[ -n "$MLX_OPTION" ]] && echo "🖥️ MinilibX support enabled."
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+	if [[ -t 0 ]]; then
+		read -p "Enter the parent folder name for subprojects (e.g., 'my_project'): " PARENT_FOLDER_NAME
+	else
+		read PARENT_FOLDER_NAME
+	fi
+	if [[ -z "$PARENT_FOLDER_NAME" ]]; then
+		echo "Parent folder name cannot be empty. Using '$PROJECT_NAME' as default."
+		PARENT_FOLDER_NAME="$PROJECT_NAME"
+	fi
 
-exit 0
+	if [[ -t 0 ]]; then
+		read -p "Enter subproject names (space-separated, leave empty to finish): " SUB_NAMES_INPUT
+	else
+		read SUB_NAMES_INPUT
+	fi
+	for SUB_NAME_INPUT in $SUB_NAMES_INPUT; do
+		PROJECTS_TO_GENERATE+=("$PARENT_FOLDER_NAME/$SUB_NAME_INPUT:$SUB_NAME_INPUT")
+	done
+fi
+
+# Prompt for libft
+if [[ -t 0 ]]; then
+	read -p "Do you want to include libft? (y/n): " -r
+	echo
+else
+	read REPLY
+fi
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+	if [[ -t 0 ]]; then
+		read -p "Enter libft repository URL (e.g., https://github.com/42School/libft.git): " LIBFT_REPO
+	else
+		read LIBFT_REPO
+	fi
+	# Store in config file
+	grep -q "^LIBFT_DEFAULT=" "$CONFIG_FILE" && \
+	sed -i '' "s|^LIBFT_DEFAULT=.*|LIBFT_DEFAULT=\"$LIBFT_REPO\"|" "$CONFIG_FILE" || \
+	echo "LIBFT_DEFAULT=\"$LIBFT_REPO\"" >> "$CONFIG_FILE"
+fi
+
+# Prompt for mlx
+if [[ -t 0 ]]; then
+	read -p "Do you want to include MinilibX? (y/n): " -r
+	echo
+else
+	read REPLY
+fi
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+	MLX_OPTION="yes"
+fi
+
+# Prompt for link option
+if [[ -t 0 ]]; then
+	read -p "Choose linking mode (absolute/relative, default absolute): " LINK_OPTION_INPUT
+	LINK_OPTION=${LINK_OPTION_INPUT:-absolute}
+else
+	read LINK_OPTION_INPUT
+	LINK_OPTION=${LINK_OPTION_INPUT:-absolute}
+fi
+
+# Prompt for git remote
+if [[ -t 0 ]]; then
+	read -p "Do you want to initialize a Git repository and set a remote? (y/n): " -r
+	echo
+else
+	read REPLY
+fi
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+	if [[ -t 0 ]]; then
+		read -p "Enter Git remote URL: " PROJECT_GIT
+	else
+		read PROJECT_GIT
+	fi
+fi
+
+# Prompt for C++
+if [[ -t 0 ]]; then
+	read -p "Do you want C++ support? (y/n): " -r
+	echo
+else
+	read REPLY
+fi
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+	CPP_OPTION="yes"
+fi
+
+# Prompt for Intra remote
+if [[ -t 0 ]]; then
+	read -p "Do you want to add an Intranet git remote (vogsphere)? (y/n): " -r
+	echo
+else
+	read REPLY
+fi
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+	INTRA_OPTION="yes"
+fi
+
+# Set default values for compilation based on C++ option
+if [[ -n "$CPP_OPTION" ]]; then
+	SRC_EXT="cpp"
+	HEADER_EXT="hpp"
+	CC="g++"
+	CFLAGS="-Wall -Wextra -Werror -std=c++98"
+	LDFLAGS=""
+else
+	SRC_EXT="c"
+	HEADER_EXT="h"
+	CC="gcc"
+	CFLAGS="-Wall -Wextra -Werror"
+	LDFLAGS=""
+fi
+
+echo "DEBUG: PROJECTS_TO_GENERATE array before loop: ${PROJECTS_TO_GENERATE[@]}"
+
+# Loop through projects to generate
+echo "DEBUG: PROJECTS_TO_GENERATE array: ${PROJECTS_TO_GENERATE[@]}"
+for project_entry in "${PROJECTS_TO_GENERATE[@]}"; do
+	IFS=":" read -r target_path file_name <<< "$project_entry"
+	echo "Generating project: $file_name in $target_path"
+	generate_single_project "$target_path" "$file_name"
+
+	# Clone libft if specified
+	if [[ -n "$LIBFT_REPO" ]]; then
+		echo "Cloning libft from $LIBFT_REPO into $target_path/libft"
+		git clone "$LIBFT_REPO" "$target_path/libft"
+	fi
+
+	# Clone MinilibX if specified
+	if [[ -n "$MLX_OPTION" ]]; then
+		echo "Cloning MinilibX into $target_path/mlx"
+		git clone https://github.com/42paris/minilibx-linux.git "$target_path/mlx"
+	fi
+
+	# Initialize Git repo and set remote if specified
+	if [[ -n "$PROJECT_GIT" ]]; then
+		echo "Initializing Git repository and setting remote for $target_path"
+		(cd "$target_path" && git init && git remote add origin "$PROJECT_GIT")
+	fi
+
+	# Add Intra remote if specified
+	if [[ -n "$INTRA_OPTION" ]]; then
+		echo "Adding Intra remote for $target_path"
+		(cd "$target_path" && git remote add vogsphere git@vogsphere.42.fr:intra/$(basename "$target_path"))
+	fi
+done
+
+
+
+
+
+
+
+
+
