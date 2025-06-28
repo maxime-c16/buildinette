@@ -35,22 +35,60 @@
 #
 #
 INSTALL_PATH="/usr/local/bin/buildinette"
+VERSION="1.0.0"
+REPO_URL="https://github.com/maxime-c16/buildinette.git"
 
 PROJECT_NAME="default_project" # Default project name, can be overridden by -name
 PROJECT_ROOT="." # Default project root, current directory
 
+# Function to check for updates
+check_for_updates() {
+    # Fetch the latest version of the script from the remote repository
+    LATEST_VERSION=$(curl -s "$REPO_URL" | grep -m 1 "VERSION=" | cut -d'=' -f2 | tr -d '"')
+
+    if [ -z "$LATEST_VERSION" ]; then
+        echo "Could not fetch the latest version."
+        return
+    fi
+
+    # Compare the version of the installed script with the latest version
+    if [ "$VERSION" != "$LATEST_VERSION" ]; then
+        echo "A new version of buildinette is available: $LATEST_VERSION"
+        read -p "Do you want to update? (y/n) " -r
+        echo
+        if [[ ${REPLY:0:1} =~ ^[Yy]$ ]]; then
+            # Download the new script and replace the old one
+            sudo curl -s -o "$INSTALL_PATH" "$REPO_URL" && sudo chmod +x "$INSTALL_PATH"
+            echo "buildinette has been updated to version $LATEST_VERSION"
+        fi
+    else
+        echo "buildinette is up to date."
+    fi
+}
+
+# If the script is run with the --update argument, check for updates and exit
+if [ "$1" == "--update" ]; then
+    check_for_updates
+    exit 0
+fi
+
 if [ ! -f "$INSTALL_PATH" ]; then
-	read -p "buildinette is not installed system-wide. Do you want to install it to $INSTALL_PATH? (y/n) " -r
-	echo
-	if [[ ${REPLY:0:1} =~ ^[Yy]$ ]]; then
-		echo "Installing buildinette to $INSTALL_PATH..."
-		sudo cp "$0" "$INSTALL_PATH" && sudo chmod +x "$INSTALL_PATH"
-		if [ $? -eq 0 ]; then
-			echo "buildinette installed successfully. You can now run 'buildinette' from anywhere."
-		else
-			echo "Error: Failed to install buildinette."
-		fi
-	fi
+    read -p "buildinette is not installed system-wide. Do you want to install it to $INSTALL_PATH? (y/n) " -r
+    echo
+    if [[ ${REPLY:0:1} =~ ^[Yy]$ ]]; then
+        echo "Installing buildinette to $INSTALL_PATH..."
+        sudo cp "$0" "$INSTALL_PATH" && sudo chmod +x "$INSTALL_PATH"
+        if [ $? -eq 0 ]; then
+            echo "buildinette installed successfully. You can now run 'buildinette' from anywhere."
+        else
+            echo "Error: Failed to install buildinette."
+        fi
+    fi
+fi
+
+# Automatically check for updates in the background
+if [ -f "$INSTALL_PATH" ]; then
+    (check_for_updates >/dev/null 2>&1) &
 fi
 
 CONFIG_FILE="$HOME/.config/buildinette.conf"
